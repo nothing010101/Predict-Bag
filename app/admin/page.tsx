@@ -18,7 +18,6 @@ export default function AdminPage() {
   function login() {
     if (wallet.toLowerCase() === ADMIN_WALLET) {
       setAuthenticated(true);
-      loadData();
     } else {
       alert("Not authorized");
     }
@@ -26,7 +25,6 @@ export default function AdminPage() {
 
   async function loadData() {
     setLoading(true);
-
     const [p, po, a] = await Promise.all([
       supabase
         .from("payout_requests")
@@ -35,7 +33,7 @@ export default function AdminPage() {
         .limit(50),
       supabase
         .from("pools")
-        .select("*, bets(count)")
+        .select("*")
         .order("created_at", { ascending: false })
         .limit(50),
       supabase
@@ -44,7 +42,6 @@ export default function AdminPage() {
         .order("prediction_points", { ascending: false })
         .limit(50),
     ]);
-
     setPayouts(p.data ?? []);
     setPools(po.data ?? []);
     setAgents(a.data ?? []);
@@ -60,14 +57,13 @@ export default function AdminPage() {
     loadData();
   }
 
-  async function markPayoutRejected(id: string, reason: string) {
-    // Refund points to agent first
-    const payout = payouts.find((p) => (p as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
+  async function markPayoutRejected(id: string) {
+    const payout = payouts.find((p) => p.id === id);
     if (payout) {
       const { data: agent } = await supabase
         .from("agents")
         .select("prediction_points")
-        .eq("wallet", payout.wallet)
+        .eq("wallet", payout.wallet as string)
         .single();
       if (agent) {
         await supabase
@@ -76,12 +72,16 @@ export default function AdminPage() {
             prediction_points:
               (agent.prediction_points as number) + (payout.prediction_points_spent as number),
           })
-          .eq("wallet", payout.wallet);
+          .eq("wallet", payout.wallet as string);
       }
     }
     await supabase
       .from("payout_requests")
-      .update({ status: "rejected", rejection_reason: reason, processed_at: new Date().toISOString() })
+      .update({
+        status: "rejected",
+        rejection_reason: "Rejected by admin",
+        processed_at: new Date().toISOString(),
+      })
       .eq("id", id);
     loadData();
   }
@@ -121,7 +121,6 @@ export default function AdminPage() {
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Tabs */}
         <div className="flex gap-2 mb-8 border-b border-border pb-4">
           {(["payouts", "pools", "agents"] as const).map((t) => (
             <button
@@ -150,26 +149,23 @@ export default function AdminPage() {
             <h2 className="font-bold mb-4">
               PAYOUT REQUESTS
               <span className="ml-2 text-xs font-mono text-dim">
-                ({payouts.filter((p) => (p as Record<string, unknown>).status === "pending").length} pending)
+                ({payouts.filter((p) => p.status === "pending").length} pending)
               </span>
             </h2>
             <div className="space-y-3">
-              {payouts.map((p) => {
-                const payout = p as Record<string, unknown>;
-                return (
-                  <PayoutRow
-                    key={payout.id as string}
-                    payout={payout}
-                    onSent={markPayoutSent}
-                    onRejected={markPayoutRejected}
-                  />
-                );
-              })}
               {payouts.length === 0 && (
                 <div className="border border-border p-8 text-center text-dim font-mono text-sm">
                   NO PAYOUT REQUESTS
                 </div>
               )}
+              {payouts.map((payout) => (
+                <PayoutRow
+                  key={payout.id as string}
+                  payout={payout}
+                  onSent={markPayoutSent}
+                  onRejected={markPayoutRejected}
+                />
+              ))}
             </div>
           </div>
         )}
@@ -191,37 +187,33 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pools.map((pool) => {
-                    const p = pool as Record<string, unknown>;
-                    return (
-                      <tr key={p.id as string} className="border-b border-border/50 hover:bg-surface">
-                        <td className="py-3 pr-4">
-                          <span className="text-text font-bold">{p.token_symbol as string}</span>
-                          <span className="text-dim ml-1">{p.token_name as string}</span>
-                        </td>
-                        <td className="py-3 pr-4 text-dim">{(p.timeframe as string).toUpperCase()}</td>
-                        <td className="py-3 pr-4">
-                          <span className={
-                            p.status === "open" ? "text-accent" :
-                            p.status === "resolved" ? "text-dim" : "text-warn"
-                          }>
-                            {(p.status as string).toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-4 text-text">{(p.total_pot as number).toLocaleString()}</td>
-                        <td className="py-3 pr-4">
-                          {p.outcome ? (
-                            <span className={p.outcome === "yes" ? "text-accent" : "text-warn"}>
-                              {(p.outcome as string).toUpperCase()}
-                            </span>
-                          ) : <span className="text-dim">—</span>}
-                        </td>
-                        <td className="py-3 text-dim">
-                          {new Date(p.closes_at as string).toLocaleString()}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {pools.map((pool) => (
+                    <tr key={pool.id as string} className="border-b border-border/50 hover:bg-surface">
+                      <td className="py-3 pr-4">
+                        <span className="text-text font-bold">{pool.token_symbol as string}</span>
+                        <span className="text-dim ml-1">{pool.token_name as string}</span>
+                      </td>
+                      <td className="py-3 pr-4 text-dim">{(pool.timeframe as string).toUpperCase()}</td>
+                      <td className="py-3 pr-4">
+                        <span className={
+                          pool.status === "open" ? "text-accent" :
+                          pool.status === "resolved" ? "text-dim" : "text-warn"
+                        }>
+                          {(pool.status as string).toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-text">{(pool.total_pot as number).toLocaleString()}</td>
+                      <td className="py-3 pr-4">
+                        {pool.outcome
+                          ? <span className={pool.outcome === "yes" ? "text-accent" : "text-warn"}>{(pool.outcome as string).toUpperCase()}</span>
+                          : <span className="text-dim">—</span>
+                        }
+                      </td>
+                      <td className="py-3 text-dim">
+                        {new Date(pool.closes_at as string).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -246,26 +238,23 @@ export default function AdminPage() {
                 </thead>
                 <tbody>
                   {agents.map((agent) => {
-                    const a = agent as Record<string, unknown>;
-                    const winRate = (a.total_bets as number) > 0
-                      ? (((a.total_wins as number) / (a.total_bets as number)) * 100).toFixed(0)
+                    const winRate = (agent.total_bets as number) > 0
+                      ? (((agent.total_wins as number) / (agent.total_bets as number)) * 100).toFixed(0)
                       : "0";
                     return (
-                      <tr key={a.id as string} className="border-b border-border/50 hover:bg-surface">
+                      <tr key={agent.id as string} className="border-b border-border/50 hover:bg-surface">
                         <td className="py-3 pr-4 text-text">
-                          {(a.wallet as string).slice(0, 6)}...{(a.wallet as string).slice(-4)}
+                          {(agent.wallet as string).slice(0, 6)}...{(agent.wallet as string).slice(-4)}
                         </td>
-                        <td className="py-3 pr-4 text-accent">{(a.mining_points as number).toLocaleString()}</td>
-                        <td className="py-3 pr-4 text-text">{(a.prediction_points as number).toLocaleString()}</td>
-                        <td className="py-3 pr-4 text-dim">{a.total_bets as number}</td>
+                        <td className="py-3 pr-4 text-accent">{(agent.mining_points as number).toLocaleString()}</td>
+                        <td className="py-3 pr-4 text-text">{(agent.prediction_points as number).toLocaleString()}</td>
+                        <td className="py-3 pr-4 text-dim">{agent.total_bets as number}</td>
                         <td className="py-3 pr-4">
-                          <span className="text-text">{a.total_wins as number}</span>
+                          <span className="text-text">{agent.total_wins as number}</span>
                           <span className="text-dim ml-1">({winRate}%)</span>
                         </td>
                         <td className="py-3 text-dim">
-                          {a.last_active
-                            ? new Date(a.last_active as string).toLocaleString()
-                            : "—"}
+                          {agent.last_active ? new Date(agent.last_active as string).toLocaleString() : "—"}
                         </td>
                       </tr>
                     );
@@ -287,13 +276,14 @@ function PayoutRow({
 }: {
   payout: Record<string, unknown>;
   onSent: (id: string, txHash: string) => void;
-  onRejected: (id: string, reason: string) => void;
+  onRejected: (id: string) => void;
 }) {
   const [txHash, setTxHash] = useState("");
   const isPending = payout.status === "pending";
+  const txHashStr = payout.tx_hash as string | null;
 
   return (
-    <div className={`border p-4 ${isPending ? "border-accent/30 bg-accent/3" : "border-border"}`}>
+    <div className={`border p-4 ${isPending ? "border-accent/30" : "border-border"}`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="font-mono text-sm text-text">{payout.wallet as string}</div>
@@ -327,20 +317,18 @@ function PayoutRow({
                 SENT
               </button>
               <button
-                onClick={() => onRejected(payout.id as string, "Rejected by admin")}
+                onClick={() => onRejected(payout.id as string)}
                 className="px-4 py-2 border border-warn text-warn text-xs font-bold hover:bg-warn/10"
               >
                 REJECT
               </button>
             </>
           ) : (
-            <span className={`text-xs font-mono ${
-              payout.status === "sent" ? "text-accent" : "text-warn"
-            }`}>
+            <span className={`text-xs font-mono ${payout.status === "sent" ? "text-accent" : "text-warn"}`}>
               {(payout.status as string).toUpperCase()}
-              {payout.tx_hash && (
+              {txHashStr && (
                 <a
-                  href={`https://basescan.org/tx/${payout.tx_hash}`}
+                  href={`https://basescan.org/tx/${txHashStr}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="ml-2 underline"
