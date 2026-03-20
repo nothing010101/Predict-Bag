@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import BloombergLayout from "@/components/BloombergLayout";
+import TokenImage from "@/components/TokenImage";
 
 function formatMC(mc: number): string {
   if (mc >= 1_000_000_000) return `$${(mc / 1_000_000_000).toFixed(2)}B`;
@@ -140,14 +141,11 @@ export default async function PoolsPage({
 
                       {/* Token */}
                       <div className="col-span-12 md:col-span-3 flex items-center gap-2">
-                        {pool.token_image_url ? (
-                          <img src={pool.token_image_url} alt="" className="w-7 h-7 rounded-full border border-[#f5a623]/20 flex-shrink-0 object-cover"
-                            onError={(e: any) => e.target.style.display = "none"} />
-                        ) : (
-                          <div className="w-7 h-7 rounded-full border border-[#f5a623]/20 flex-shrink-0 bg-[#f5a623]/10 flex items-center justify-center text-[10px] font-black text-[#f5a623]/50">
-                            {pool.token_symbol?.slice(0, 2)}
-                          </div>
-                        )}
+                        <TokenImage
+                          src={pool.token_image_url}
+                          symbol={pool.token_symbol}
+                          size={28}
+                        />
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[#e8d5a3] font-black text-sm">{pool.token_symbol}</span>
@@ -184,7 +182,9 @@ export default async function PoolsPage({
 
                       {/* Pot */}
                       <div className="col-span-6 md:col-span-1 text-right">
-                        <span className="text-[#f5a623] text-[11px] font-mono">{pool.total_pot > 0 ? pool.total_pot.toLocaleString() : "—"}</span>
+                        <span className="text-[#f5a623] text-[11px] font-mono">
+                          {pool.total_pot > 0 ? pool.total_pot.toLocaleString() : "—"}
+                        </span>
                       </div>
 
                       {/* Time */}
