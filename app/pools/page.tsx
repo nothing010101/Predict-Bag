@@ -2,82 +2,194 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import PoolCard from "@/components/PoolCard";
 
-async function getPools(timeframe?: string) {
+async function getPools(timeframe?: string, status?: string, direction?: string) {
   let query = supabase
     .from("pools")
     .select("*")
-    .eq("status", "open")
     .order("created_at", { ascending: false });
+
+  // Status filter
+  if (status === "open") {
+    query = query.eq("status", "open");
+  } else if (status === "ended") {
+    query = query.in("status", ["resolved", "locked"]);
+  } else {
+    // ALL — show open + resolved
+    query = query.in("status", ["open", "locked", "resolved"]);
+  }
 
   if (timeframe && ["fast", "medium", "slow"].includes(timeframe)) {
     query = query.eq("timeframe", timeframe);
   }
 
-  const { data } = await query;
+  if (direction && ["up", "down"].includes(direction)) {
+    query = query.eq("direction", direction);
+  }
+
+  const { data } = await query.limit(100);
   return data ?? [];
 }
 
 export default async function PoolsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ timeframe?: string }>;
+  searchParams: Promise<{ timeframe?: string; status?: string; direction?: string }>;
 }) {
-  const { timeframe } = await searchParams;
-  const pools = await getPools(timeframe);
-  const active = timeframe ?? "all";
+  const { timeframe, status, direction } = await searchParams;
+  const pools = await getPools(timeframe, status, direction);
 
-  const filters = [
+  const activeStatus = status ?? "open";
+  const activeTimeframe = timeframe ?? "all";
+  const activeDirection = direction ?? "all";
+
+  const statusFilters = [
+    { key: "open", label: "OPEN" },
+    { key: "ended", label: "ENDED" },
     { key: "all", label: "ALL" },
-    { key: "fast", label: "⚡ FAST 2H" },
-    { key: "medium", label: "⚖️ MEDIUM 6H" },
-    { key: "slow", label: "🐢 SLOW 12H" },
   ];
 
+  const timeframeFilters = [
+    { key: "all", label: "ALL" },
+    { key: "fast", label: "⚡ 2H" },
+    { key: "medium", label: "⚖️ 6H" },
+    { key: "slow", label: "🐢 12H" },
+  ];
+
+  const directionFilters = [
+    { key: "all", label: "ALL" },
+    { key: "up", label: "↑ UP" },
+    { key: "down", label: "↓ DOWN" },
+  ];
+
+  function buildUrl(overrides: Record<string, string>) {
+    const params = new URLSearchParams();
+    const merged = {
+      ...(timeframe ? { timeframe } : {}),
+      ...(status ? { status } : {}),
+      ...(direction ? { direction } : {}),
+      ...overrides,
+    };
+    Object.entries(merged).forEach(([k, v]) => {
+      if (v && v !== "all" && v !== "open") params.set(k, v);
+    });
+    // status=open is default, don't include in URL
+    const str = params.toString();
+    return `/pools${str ? `?${str}` : ""}`;
+  }
+
+  const openCount = pools.filter(p => p.status === "open").length;
+  const endedCount = pools.filter(p => p.status === "resolved" || p.status === "locked").length;
+
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-[#060608] text-[#e2e2e2]">
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-[#00ff87] opacity-[0.015] blur-[120px] pointer-events-none" />
+
       {/* Nav */}
-      <nav className="border-b border-border px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="font-mono text-sm text-accent tracking-widest">PREDICTBAG</Link>
-        <div className="flex items-center gap-6 text-sm text-dim">
-          <Link href="/payout" className="hover:text-text transition-colors">Payout</Link>
-          <Link href="/skill" className="hover:text-text transition-colors">Get Skill</Link>
+      <nav className="border-b border-white/5 px-6 py-5 flex items-center justify-between relative z-10">
+        <Link href="/" className="font-mono text-xs tracking-[0.3em] text-[#00ff87]">PREDICTBAG</Link>
+        <div className="flex items-center gap-6 text-xs font-mono text-[#555]">
+          <Link href="/leaderboard" className="hover:text-[#e2e2e2] transition-colors">LEADERBOARD</Link>
+          <Link href="/payout" className="hover:text-[#e2e2e2] transition-colors">PAYOUT</Link>
+          <Link href="/skill" className="hover:text-[#e2e2e2] transition-colors">SKILL</Link>
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-6 py-10">
+      <div className="max-w-5xl mx-auto px-6 py-10 relative z-10">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-black">OPEN POOLS</h1>
-            <p className="text-dim text-sm mt-1 font-mono">{pools.length} pools available</p>
+        <div className="mb-8">
+          <p className="text-[10px] font-mono text-[#333] tracking-[0.3em] mb-3">PREDICTION POOLS</p>
+          <div className="flex items-end justify-between">
+            <h1 className="text-4xl font-black tracking-tight">POOLS</h1>
+            <div className="flex items-center gap-4 text-[10px] font-mono text-[#444]">
+              <span><span className="text-[#00ff87]">{openCount}</span> OPEN</span>
+              <span><span className="text-[#555]">{endedCount}</span> ENDED</span>
+            </div>
           </div>
         </div>
 
-        {/* Timeframe filter */}
-        <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
-          {filters.map((f) => (
-            <Link
-              key={f.key}
-              href={f.key === "all" ? "/pools" : `/pools?timeframe=${f.key}`}
-              className={`px-4 py-2 text-xs font-mono whitespace-nowrap border transition-colors ${
-                active === f.key
-                  ? "border-accent text-accent bg-accent/5"
-                  : "border-border text-dim hover:border-muted hover:text-text"
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
+        {/* Filters */}
+        <div className="space-y-3 mb-8">
+
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-[#333] w-20 tracking-widest">STATUS</span>
+            <div className="flex gap-2">
+              {statusFilters.map((f) => (
+                <Link
+                  key={f.key}
+                  href={buildUrl({ status: f.key })}
+                  className={`px-3 py-1.5 text-[11px] font-mono border transition-colors ${
+                    activeStatus === f.key
+                      ? "border-[#00ff87]/40 text-[#00ff87] bg-[#00ff87]/5"
+                      : "border-white/8 text-[#555] hover:text-[#e2e2e2] hover:border-white/15"
+                  }`}
+                >
+                  {f.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Direction */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-[#333] w-20 tracking-widest">DIRECTION</span>
+            <div className="flex gap-2">
+              {directionFilters.map((f) => (
+                <Link
+                  key={f.key}
+                  href={buildUrl({ direction: f.key })}
+                  className={`px-3 py-1.5 text-[11px] font-mono border transition-colors ${
+                    activeDirection === f.key
+                      ? f.key === "up"
+                        ? "border-[#00ff87]/40 text-[#00ff87] bg-[#00ff87]/5"
+                        : f.key === "down"
+                        ? "border-[#ff6b35]/40 text-[#ff6b35] bg-[#ff6b35]/5"
+                        : "border-[#00ff87]/40 text-[#00ff87] bg-[#00ff87]/5"
+                      : "border-white/8 text-[#555] hover:text-[#e2e2e2] hover:border-white/15"
+                  }`}
+                >
+                  {f.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Timeframe */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-[#333] w-20 tracking-widest">TIMEFRAME</span>
+            <div className="flex gap-2">
+              {timeframeFilters.map((f) => (
+                <Link
+                  key={f.key}
+                  href={buildUrl({ timeframe: f.key })}
+                  className={`px-3 py-1.5 text-[11px] font-mono border transition-colors ${
+                    activeTimeframe === f.key
+                      ? "border-[#00ff87]/40 text-[#00ff87] bg-[#00ff87]/5"
+                      : "border-white/8 text-[#555] hover:text-[#e2e2e2] hover:border-white/15"
+                  }`}
+                >
+                  {f.label}
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
+
+        {/* Pool count */}
+        <p className="text-[10px] font-mono text-[#333] mb-6">
+          {pools.length} POOLS FOUND
+        </p>
 
         {/* Pools grid */}
         {pools.length === 0 ? (
-          <div className="border border-border p-12 text-center">
-            <p className="text-dim font-mono text-sm">NO OPEN POOLS</p>
-            <p className="text-dim text-xs mt-2">New pools are generated automatically every 30 minutes</p>
+          <div className="border border-white/8 p-16 text-center">
+            <p className="text-[#333] font-mono text-sm">NO POOLS FOUND</p>
+            <p className="text-[#222] font-mono text-xs mt-2">
+              Try changing the filters above
+            </p>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {pools.map((pool) => (
               <PoolCard key={pool.id} pool={pool} />
             ))}
