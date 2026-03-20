@@ -5,7 +5,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-// Fetch Sentient tokens from DexScreener (Virtuals ecosystem on Base)
+
 async function fetchVirtualsSentientTokens() {
   try {
     const res = await fetch(
@@ -14,7 +14,7 @@ async function fetchVirtualsSentientTokens() {
     if (!res.ok) return [];
     const data = await res.json();
 
-    // Filter Base chain tokens, recently updated
+    
     return (data ?? [])
       .filter((t: Record<string, unknown>) => t.chainId === "base")
       .slice(0, 30);
@@ -59,7 +59,7 @@ Deno.serve(async () => {
     const address = token.tokenAddress ?? token.address;
     if (!address) continue;
 
-    // Check if already in registry
+    
     const { data: existing } = await supabase
       .from("token_registry")
       .select("id, first_seen, has_active_pool")
@@ -69,24 +69,24 @@ Deno.serve(async () => {
     const now = Date.now();
 
     if (existing) {
-      // Check if token is old enough (2 hours) and no active pool
+      
       const tokenAgeHours = (now - new Date(existing.first_seen).getTime()) / 3_600_000;
       if (tokenAgeHours < 2 || existing.has_active_pool) continue;
     } else {
-      // First time seeing this token - register but don't create pool yet
+      
       await supabase.from("token_registry").insert({
         token_address: address,
         virtuals_status: "sentient",
         first_seen: new Date().toISOString(),
       });
-      continue; // Will create pool next cycle (after 2h)
+      continue; 
     }
 
-    // Get current MC from DexScreener
+  
     const tokenData = await getTokenMC(address);
-    if (!tokenData || tokenData.mc < 40_000) continue; // Min 40K MC
+    if (!tokenData || tokenData.mc < 40_000) continue; 
 
-    // Update registry
+   
     await supabase
       .from("token_registry")
       .update({
@@ -98,7 +98,7 @@ Deno.serve(async () => {
       })
       .eq("token_address", address);
 
-    // Create pools for all 3 timeframes
+  
     const timeframes: Array<{ key: string; hours: number }> = [
       { key: "fast", hours: 2 },
       { key: "medium", hours: 6 },
