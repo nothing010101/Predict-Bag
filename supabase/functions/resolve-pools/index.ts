@@ -1,152 +1,168 @@
+// resolve-pools/index.ts v2 - schema matched
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-);
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function getTokenMC(address: string): Promise<number> {
+async function getCurrentMC(tokenAddress: string): Promise<number | null> {
   try {
-    const res = await fetch(`https://api.dexscreener.com/tokens/v1/base/${address}`);
-    if (!res.ok) return 0;
+    // Try via pair_address first
+    const { data: tokenReg } = await supabase
+      .from("token_registry")
+      .select("pair_address, current_mc")
+      .eq("token_address", tokenAddress)
+      .single();
+
+    if (tokenReg?.pair_address) {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/pairs/base/${tokenReg.pair_address}`
+      );
+      const data = await res.json();
+      const pair = data.pair ?? data.pairs?.[0];
+      if (pair) return pair.marketCap ?? pair.fdv ?? null;
+    }
+
+    // Fallback: fetch by token address
+    const res = await fetch(
+      `https://api.dexscreener.com/tokens/v1/base/${tokenAddress}`
+    );
     const data = await res.json();
-    return data?.pairs?.[0]?.marketCap ?? 0;
+    const pair = data?.pairs?.[0];
+    return pair?.marketCap ?? null;
   } catch {
-    return 0;
+    return null;
   }
 }
 
-async function resolvePool(
-  poolId: string,
-  outcome: "yes" | "no",
-  resolvedMc: number
-) {
-  // Get all bets on this pool
+async function resolvePool(pool: any, outcome: "yes" | "no", finalMC: number) {
   const { data: bets } = await supabase
     .from("bets")
     .select("*")
-    .eq("pool_id", poolId);
+    .eq("pool_id", pool.id);
 
   if (!bets || bets.length === 0) {
-    await supabase
-      .from("pools")
-      .update({ status: "resolved", outcome, resolved_at: new Date().toISOString(), resolved_mc: resolvedMc })
-      .eq("id", poolId);
+    await supabase.from("pools").update({
+      status: "resolved",
+      outcome,
+      resolved_mc: finalMC,
+      resolved_at: new Date().toISOString(),
+    }).eq("id", pool.id);
     return;
   }
 
-  // Parimutuel: winners split total pot proportionally
-  const totalPot = bets.reduce((sum: number, b: Record<string, unknown>) => sum + (b.amount as number), 0);
-  const winners = bets.filter((b: Record<string, unknown>) => b.prediction === outcome);
-  const totalWinnerBets = winners.reduce((sum: number, b: Record<string, unknown>) => sum + (b.amount as number), 0);
+  const winners = bets.filter((b) => b.prediction === outcome);
+  const totalPot = bets.reduce((sum, b) => sum + b.amount, 0);
+  const totalWinningSide = winners.reduce((sum, b) => sum + b.amount, 0);
 
-  // Update each bet + agent points
-  for (const bet of bets) {
-    const isCorrect = bet.prediction === outcome;
-    let predictionPointsEarned = 0;
-    let miningPointsEarned = 0;
+  // Payout winners
+  for (const winner of winners) {
+    const share = totalWinningSide > 0
+      ? Math.floor((winner.amount / totalWinningSide) * totalPot)
+      : 0;
 
-    if (isCorrect && totalWinnerBets > 0) {
-      // Proportional share of total pot
-      predictionPointsEarned = Math.floor((bet.amount / totalWinnerBets) * totalPot);
-      miningPointsEarned = 40; // accuracy PoC bonus
-    }
+    await supabase.from("bets").update({
+      is_correct: true,
+      prediction_points_earned: share,
+    }).eq("id", winner.id);
 
-    // Update bet result
-    await supabase
-      .from("bets")
-      .update({
-        is_correct: isCorrect,
-        prediction_points_earned: predictionPointsEarned,
-        mining_points_earned: miningPointsEarned,
-      })
-      .eq("id", bet.id);
-
-    // Update agent points + stats
     const { data: agent } = await supabase
       .from("agents")
-      .select("prediction_points, mining_points, total_wins")
-      .eq("wallet", bet.wallet)
+      .select("prediction_points, total_wins, current_streak")
+      .eq("wallet", winner.wallet)
       .single();
 
     if (agent) {
-      await supabase
-        .from("agents")
-        .update({
-          prediction_points: agent.prediction_points + predictionPointsEarned,
-          mining_points: agent.mining_points + miningPointsEarned,
-          total_wins: isCorrect ? agent.total_wins + 1 : agent.total_wins,
-        })
-        .eq("wallet", bet.wallet);
+      await supabase.from("agents").update({
+        prediction_points: (agent.prediction_points ?? 0) + share,
+        total_wins: (agent.total_wins ?? 0) + 1,
+        current_streak: (agent.current_streak ?? 0) + 1,
+        last_active: new Date().toISOString(),
+      }).eq("wallet", winner.wallet);
     }
   }
 
-  // Mark pool as resolved
-  await supabase
-    .from("pools")
-    .update({
-      status: "resolved",
-      outcome,
-      resolved_at: new Date().toISOString(),
-      resolved_mc: resolvedMc,
-    })
-    .eq("id", poolId);
+  // Mark losers
+  const losers = bets.filter((b) => b.prediction !== outcome);
+  for (const loser of losers) {
+    await supabase.from("bets").update({
+      is_correct: false,
+      prediction_points_earned: 0,
+    }).eq("id", loser.id);
 
-  console.log(`Pool ${poolId} resolved: ${outcome} | pot: ${totalPot} | winners: ${winners.length}`);
+    await supabase.from("agents").update({
+      current_streak: 0,
+      last_active: new Date().toISOString(),
+    }).eq("wallet", loser.wallet);
+  }
+
+  // Resolve pool
+  await supabase.from("pools").update({
+    status: "resolved",
+    outcome,
+    resolved_mc: finalMC,
+    peak_mc: Math.max(finalMC, pool.peak_mc ?? 0),
+    resolved_at: new Date().toISOString(),
+  }).eq("id", pool.id);
 }
 
-Deno.serve(async () => {
+serve(async (_req) => {
   try {
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    // Get all open pools
-    const { data: pools } = await supabase
+    const { data: pools, error } = await supabase
       .from("pools")
       .select("*")
-      .eq("status", "open");
+      .in("status", ["open", "locked"]);
 
+    if (error) throw error;
     if (!pools || pools.length === 0) {
-      return new Response(JSON.stringify({ message: "No open pools" }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ message: "No active pools", resolved: 0 }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
     }
 
     let resolved = 0;
 
     for (const pool of pools) {
-      const currentMc = await getTokenMC(pool.token_address);
+      const currentMC = await getCurrentMC(pool.token_address);
 
       // Update peak_mc if higher
-      if (currentMc > (pool.peak_mc ?? 0)) {
-        await supabase
-          .from("pools")
-          .update({ peak_mc: currentMc })
-          .eq("id", pool.id);
+      if (currentMC && currentMC > (pool.peak_mc ?? 0)) {
+        await supabase.from("pools").update({ peak_mc: currentMC }).eq("id", pool.id);
+        pool.peak_mc = currentMC;
       }
 
-      const peakMc = Math.max(currentMc, pool.peak_mc ?? 0);
+      const effectivePeak = Math.max(currentMC ?? 0, pool.peak_mc ?? 0);
 
-      // Check deadline passed → resolve NO
-      if (new Date(pool.closes_at) < new Date(now)) {
-        const outcome = peakMc >= pool.target_mc ? "yes" : "no";
-        await resolvePool(pool.id, outcome, currentMc);
+      // Early resolve: target hit
+      if (effectivePeak >= pool.target_mc) {
+        await resolvePool(pool, "yes", effectivePeak);
         resolved++;
         continue;
       }
 
-      // Early resolve: peak MC reached target → resolve YES
-      if (peakMc >= pool.target_mc) {
-        await resolvePool(pool.id, "yes", currentMc);
+      // Deadline resolve
+      if (new Date(pool.closes_at) <= now) {
+        await resolvePool(pool, "no", effectivePeak);
         resolved++;
+        continue;
       }
     }
 
     return new Response(
-      JSON.stringify({ message: `Resolved ${resolved} pools`, checked: pools.length }),
-      { headers: { "Content-Type": "application/json" } }
+      JSON.stringify({
+        message: "resolve-pools complete",
+        checked: pools.length,
+        resolved,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
     );
-  } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
+  } catch (err: any) {
+    console.error("resolve-pools error:", err);
+    return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
