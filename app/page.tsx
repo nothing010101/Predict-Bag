@@ -143,9 +143,9 @@ export default function Home() {
 
         {/* Footer */}
         <div className="mt-8 border-t border-[#f5a623]/10 pt-4 flex flex-wrap items-center justify-between gap-4 text-[10px] text-[#e8d5a3]/20">
-          <span>PREDICTBAG © 2025 · BASE CHAIN</span>
+          <span>PREDICTBAG © 2026 · BASE CHAIN</span>
           <div className="flex gap-6">
-            <a href="https://x.com/PredictBag" target="_blank" rel="noopener noreferrer" className="hover:text-[#e8d5a3]/50 transition-colors">X / TWITTER</a>
+            <a href="https://x.com/BagPredict" target="_blank" rel="noopener noreferrer" className="hover:text-[#e8d5a3]/50 transition-colors">X / TWITTER</a>
           </div>
         </div>
       </main>
