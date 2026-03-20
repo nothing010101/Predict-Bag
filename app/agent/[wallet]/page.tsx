@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import BloombergLayout from "@/components/BloombergLayout";
+import TokenImage from "@/components/TokenImage";
 
 function fmt(wallet: string) { return `${wallet.slice(0, 8)}...${wallet.slice(-6)}`; }
 function ago(ts: string | null) {
@@ -9,12 +10,6 @@ function ago(ts: string | null) {
   const diff = Date.now() - new Date(ts).getTime();
   const m = Math.floor(diff / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
   if (d > 0) return `${d}d ago`; if (h > 0) return `${h}h ago`; if (m > 0) return `${m}m ago`; return "just now";
-}
-function fmc(mc: number) {
-  if (mc >= 1e9) return `$${(mc / 1e9).toFixed(2)}B`;
-  if (mc >= 1e6) return `$${(mc / 1e6).toFixed(2)}M`;
-  if (mc >= 1e3) return `$${(mc / 1e3).toFixed(1)}K`;
-  return `$${mc.toFixed(0)}`;
 }
 
 export const revalidate = 30;
@@ -103,7 +98,6 @@ export default async function AgentPage({ params }: { params: Promise<{ wallet: 
             <div className="p-12 text-center text-[#e8d5a3]/20 text-sm font-mono">NO BETS YET</div>
           )}
 
-          {/* Table header */}
           {betList.length > 0 && (
             <div className="hidden md:grid grid-cols-12 px-4 py-2 border-b border-[#f5a623]/10 text-[10px] font-black tracking-widest text-[#e8d5a3]/20">
               <span className="col-span-2">TOKEN</span>
@@ -121,23 +115,17 @@ export default async function AgentPage({ params }: { params: Promise<{ wallet: 
             {betList.map(bet => {
               const pool = bet.pools as any;
               const isWin = bet.is_correct === true;
-              const isLoss = bet.is_correct === false;
               const isUp = pool?.direction === "up";
 
               return (
-                <div key={bet.id} className={`grid grid-cols-12 px-4 py-3 items-center gap-1 text-[11px] font-mono ${
-                  isWin ? "bg-[#4caf50]/5" : ""
-                }`}>
+                <div key={bet.id} className={`grid grid-cols-12 px-4 py-3 items-center gap-1 text-[11px] font-mono ${isWin ? "bg-[#4caf50]/5" : ""}`}>
                   {/* Token */}
                   <div className="col-span-12 md:col-span-2 flex items-center gap-2">
-                    {pool?.token_image_url ? (
-                      <img src={pool.token_image_url} alt="" className="w-6 h-6 rounded-full border border-[#f5a623]/20 flex-shrink-0 object-cover"
-                        onError={(e: any) => e.target.style.display = "none"} />
-                    ) : (
-                      <div className="w-6 h-6 rounded-full border border-[#f5a623]/20 bg-[#f5a623]/5 flex-shrink-0 flex items-center justify-center text-[9px] text-[#f5a623]/40">
-                        {pool?.token_symbol?.slice(0, 2)}
-                      </div>
-                    )}
+                    <TokenImage
+                      src={pool?.token_image_url}
+                      symbol={pool?.token_symbol}
+                      size={24}
+                    />
                     <span className="text-[#e8d5a3]/70 font-bold">{pool?.token_symbol}</span>
                   </div>
 
