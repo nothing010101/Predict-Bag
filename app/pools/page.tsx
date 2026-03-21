@@ -33,6 +33,18 @@ async function getPools(timeframe?: string, status?: string, direction?: string)
   return data ?? [];
 }
 
+async function getHotPools() {
+  // Hot = open pools with highest total_pot (most bets placed)
+  const { data } = await supabase
+    .from("pools")
+    .select("*")
+    .eq("status", "open")
+    .gt("total_pot", 0)
+    .order("total_pot", { ascending: false })
+    .limit(6);
+  return data ?? [];
+}
+
 function buildUrl(current: Record<string, string>, overrides: Record<string, string>) {
   const merged = { ...current, ...overrides };
   const params = new URLSearchParams();
@@ -53,7 +65,11 @@ export default async function PoolsPage({
   const status = sp.status ?? "open";
   const direction = sp.direction;
 
-  const pools = await getPools(timeframe, status, direction);
+  const [pools, hotPools] = await Promise.all([
+    getPools(timeframe, status, direction),
+    getHotPools(),
+  ]);
+
   const current = { timeframe: timeframe ?? "all", status, direction: direction ?? "all" };
 
   const statusFilters = [
@@ -68,23 +84,58 @@ export default async function PoolsPage({
   ];
   const tfFilters = [
     { key: "all", label: "ALL" },
-    { key: "fast", label: "2H FAST" },
-    { key: "medium", label: "6H MEDIUM" },
-    { key: "slow", label: "12H SLOW" },
+    { key: "fast", label: "2H" },
+    { key: "medium", label: "6H" },
+    { key: "slow", label: "12H" },
   ];
 
   return (
     <BloombergLayout>
       <main className="max-w-7xl mx-auto px-4 py-6">
 
-        {/* Header */}
+        {/* HOT POOLS */}
+        {hotPools.length > 0 && (
+          <div className="border border-[#f5a623]/15 mb-6">
+            <div className="border-b border-[#f5a623]/15 px-5 py-3 bg-[#f5a623]/10 flex items-center justify-between">
+              <p className="text-[#f5a623] text-[10px] font-black tracking-widest flex items-center gap-2">
+                🔥 HOTTEST POOLS
+              </p>
+              <p className="text-[#e8d5a3]/30 text-[10px]">MOST BETS TODAY</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-[#f5a623]/10">
+              {hotPools.map((pool) => {
+                const isUp = (pool.direction ?? "up") === "up";
+                return (
+                  <Link href={`/predict/${pool.id}`} key={pool.id}>
+                    <div className="p-4 hover:bg-[#f5a623]/5 transition-colors">
+                      <div className="flex items-center gap-2 mb-2">
+                        <TokenImage src={pool.token_image_url} symbol={pool.token_symbol} size={20} />
+                        <span className="font-black text-sm text-[#e8d5a3]">{pool.token_symbol}</span>
+                        <span className={`text-[9px] font-black ${isUp ? "text-[#4caf50]" : "text-[#f44336]"}`}>
+                          {isUp ? "↑" : "↓"}
+                        </span>
+                      </div>
+                      <div className="text-[#f5a623] font-black text-lg tabular-nums">
+                        {pool.total_pot.toLocaleString()}
+                      </div>
+                      <div className="text-[#e8d5a3]/20 text-[9px] font-mono">PTS IN POT</div>
+                      <div className="text-[#e8d5a3]/30 text-[9px] font-mono mt-1">
+                        {timeLeft(pool.closes_at)}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Filters */}
         <div className="border border-[#f5a623]/15 mb-4">
           <div className="border-b border-[#f5a623]/15 px-5 py-3 bg-[#f5a623]/5 flex items-center justify-between">
-            <p className="text-[#f5a623] text-[10px] font-black tracking-widest">// PREDICTION POOLS</p>
+            <p className="text-[#f5a623] text-[10px] font-black tracking-widest">// ALL POOLS</p>
             <p className="text-[#e8d5a3]/30 text-[10px]">{pools.length} RESULTS</p>
           </div>
-
-          {/* Filters */}
           <div className="p-4 space-y-3">
             {[
               { label: "STATUS", filters: statusFilters, active: status, key: "status" },
@@ -111,15 +162,13 @@ export default async function PoolsPage({
           </div>
         </div>
 
-        {/* Pool table */}
+        {/* Pool Table */}
         {pools.length === 0 ? (
           <div className="border border-[#f5a623]/15 p-16 text-center">
             <p className="text-[#e8d5a3]/20 text-sm font-mono">NO POOLS FOUND</p>
-            <p className="text-[#e8d5a3]/10 text-xs mt-2">Adjust filters above</p>
           </div>
         ) : (
           <>
-            {/* Table header */}
             <div className="hidden md:grid grid-cols-12 px-4 py-2 border border-[#f5a623]/10 border-b-0 bg-[#f5a623]/5 text-[10px] font-black tracking-widest text-[#e8d5a3]/30">
               <span className="col-span-3">TOKEN</span>
               <span className="col-span-3">QUESTION</span>
@@ -128,27 +177,22 @@ export default async function PoolsPage({
               <span className="col-span-1 text-right">POT</span>
               <span className="col-span-1 text-right">TIME</span>
             </div>
-
             <div className="border border-[#f5a623]/10 divide-y divide-[#f5a623]/5">
               {pools.map(pool => {
                 const isUp = (pool.direction ?? "up") === "up";
                 const isOpen = pool.status === "open";
                 const tl = timeLeft(pool.closes_at);
+                const isHot = hotPools.some(h => h.id === pool.id);
 
                 return (
                   <Link href={`/predict/${pool.id}`} key={pool.id}>
-                    <div className="grid grid-cols-12 px-4 py-3 hover:bg-[#f5a623]/5 transition-colors items-center gap-2">
-
-                      {/* Token */}
+                    <div className={`grid grid-cols-12 px-4 py-3 hover:bg-[#f5a623]/5 transition-colors items-center gap-2 ${isHot ? "border-l-2 border-[#f5a623]" : ""}`}>
                       <div className="col-span-12 md:col-span-3 flex items-center gap-2">
-                        <TokenImage
-                          src={pool.token_image_url}
-                          symbol={pool.token_symbol}
-                          size={28}
-                        />
+                        <TokenImage src={pool.token_image_url} symbol={pool.token_symbol} size={28} />
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[#e8d5a3] font-black text-sm">{pool.token_symbol}</span>
+                            {isHot && <span className="text-[10px]">🔥</span>}
                             <span className={`text-[10px] font-black px-1.5 py-0.5 ${isUp ? "text-[#4caf50] bg-[#4caf50]/10" : "text-[#f44336] bg-[#f44336]/10"}`}>
                               {isUp ? "↑UP" : "↓DN"}
                             </span>
@@ -162,32 +206,22 @@ export default async function PoolsPage({
                           <div className="text-[#e8d5a3]/20 text-[10px]">{pool.token_name}</div>
                         </div>
                       </div>
-
-                      {/* Question */}
                       <div className="col-span-12 md:col-span-3 text-[11px] text-[#e8d5a3]/40 leading-relaxed md:pr-4">
                         {pool.question}
                       </div>
-
-                      {/* Current MC */}
                       <div className="col-span-6 md:col-span-2 text-right">
                         <span className="text-[#e8d5a3]/60 text-sm font-mono">{formatMC(pool.current_mc)}</span>
                       </div>
-
-                      {/* Target */}
                       <div className="col-span-6 md:col-span-2 text-right">
                         <span className={`text-sm font-mono font-bold ${isUp ? "text-[#4caf50]" : "text-[#f44336]"}`}>
                           {formatMC(pool.target_mc)}
                         </span>
                       </div>
-
-                      {/* Pot */}
                       <div className="col-span-6 md:col-span-1 text-right">
-                        <span className="text-[#f5a623] text-[11px] font-mono">
+                        <span className={`text-[11px] font-mono font-bold ${pool.total_pot > 0 ? "text-[#f5a623]" : "text-[#e8d5a3]/20"}`}>
                           {pool.total_pot > 0 ? pool.total_pot.toLocaleString() : "—"}
                         </span>
                       </div>
-
-                      {/* Time */}
                       <div className="col-span-6 md:col-span-1 text-right">
                         <span className={`text-[11px] font-mono font-bold ${
                           !isOpen ? "text-[#e8d5a3]/20" :
