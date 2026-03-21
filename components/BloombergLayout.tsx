@@ -10,6 +10,7 @@ const navLinks = [
   { href: "/leaderboard", label: "LEADERBOARD" },
   { href: "/payout", label: "PAYOUT" },
   { href: "/skill", label: "SKILL.MD" },
+  { href: "/about", label: "ABOUT" },
 ];
 
 function LiveClock() {
