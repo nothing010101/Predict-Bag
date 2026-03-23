@@ -377,10 +377,10 @@ function PayoutRow({
     <div className={`border p-4 ${isPending ? "border-accent/30 bg-accent/[0.02]" : "border-border"}`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <div className="font-mono text-sm text-text">{payout.wallet as string}</div>
+          <div className="font-mono text-sm text-text">{(payout.wallet as string).slice(0, 8)}...{(payout.wallet as string).slice(-6)}</div>
           <div className="font-mono text-xs text-dim">
             {(payout.prediction_points_spent as number).toLocaleString()} pts →{" "}
-            <span className="text-text">{Number(payout.predictbag_amount).toLocaleString()} $PREDICTBAG</span>
+            <span className="text-green-400 font-black">${((payout.prediction_points_spent as number) / 1000).toFixed(2)} USDC</span>
           </div>
           <div className="font-mono text-xs text-dim">
             Wallet: {payout.wallet_age_days as number} days · {payout.wallet_tx_count as number} txs
