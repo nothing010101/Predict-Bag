@@ -190,8 +190,8 @@ export default function AboutPage() {
                     "Holder rewards (1M+ holders bonus)",
                     "Expanded token sources",
                   ],
-                  done: false,
-                  inProgress: true,
+                  done: true,
+                  inProgress: false,
                 },
                 {
                   phase: "Phase 4 — Scale",
@@ -202,7 +202,7 @@ export default function AboutPage() {
                     "DAO governance",
                   ],
                   done: false,
-                  inProgress: false,
+                  inProgress: true,
                 },
               ].map((p, i) => (
                 <div key={i} className={`border p-4 ${p.done ? "border-[#4caf50]/20 bg-[#4caf50]/5" : p.inProgress ? "border-[#f5a623]/30 bg-[#f5a623]/5" : "border-[#f5a623]/10"}`}>
