@@ -5,6 +5,34 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 const PAGE_SIZE = 50;
+const MAX_ATTEMPTS = 2;
+const LOCKOUT_DURATION_MS = 48 * 60 * 60 * 1000; // 48 hours
+const STORAGE_KEY = "admin_auth_state";
+
+function getAuthState(): { attempts: number; lockedUntil: number | null } {
+  if (typeof window === "undefined") return { attempts: 0, lockedUntil: null };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { attempts: 0, lockedUntil: null };
+    return JSON.parse(raw);
+  } catch {
+    return { attempts: 0, lockedUntil: null };
+  }
+}
+
+function setAuthState(state: { attempts: number; lockedUntil: number | null }) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function clearAuthState() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+function formatTimeLeft(ms: number): string {
+  const h = Math.floor(ms / (1000 * 60 * 60));
+  const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  return `${h}h ${m}m`;
+}
 
 export default function AdminPage() {
   const [secret, setSecret] = useState("");
@@ -12,6 +40,9 @@ export default function AdminPage() {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [tab, setTab] = useState<"payouts" | "pools" | "agents">("payouts");
+  const [isLocked, setIsLocked] = useState(false);
+  const [timeLeft, setTimeLeft] = useState("");
+  const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
 
   const [payouts, setPayouts] = useState<Record<string, unknown>[]>([]);
   const [pools, setPools] = useState<Record<string, unknown>[]>([]);
@@ -21,6 +52,33 @@ export default function AdminPage() {
   const [agentTotal, setAgentTotal] = useState(0);
   const [agentLoading, setAgentLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Check lockout status on mount and tick timer
+  useEffect(() => {
+    const check = () => {
+      const state = getAuthState();
+      const now = Date.now();
+      if (state.lockedUntil && now < state.lockedUntil) {
+        setIsLocked(true);
+        setTimeLeft(formatTimeLeft(state.lockedUntil - now));
+        setAttemptsLeft(0);
+      } else {
+        if (state.lockedUntil && now >= state.lockedUntil) {
+          // Lockout expired, reset
+          clearAuthState();
+          setIsLocked(false);
+          setAttemptsLeft(MAX_ATTEMPTS);
+        } else {
+          setIsLocked(false);
+          setAttemptsLeft(MAX_ATTEMPTS - (state.attempts || 0));
+        }
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 60000); // update every minute
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     checkSession();
@@ -33,23 +91,51 @@ export default function AdminPage() {
 
   async function login() {
     if (!secret) return;
+
+    const state = getAuthState();
+    const now = Date.now();
+
+    // Check lockout
+    if (state.lockedUntil && now < state.lockedUntil) {
+      setIsLocked(true);
+      setTimeLeft(formatTimeLeft(state.lockedUntil - now));
+      return;
+    }
+
     setAuthLoading(true);
     setAuthError("");
+
     try {
       const res = await fetch("/api/admin/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ secret }),
       });
+
       if (res.ok) {
+        clearAuthState();
         setAuthenticated(true);
         setSecret("");
       } else {
-        setAuthError("Invalid secret key");
+        const newAttempts = (state.attempts || 0) + 1;
+
+        if (newAttempts >= MAX_ATTEMPTS) {
+          const lockedUntil = now + LOCKOUT_DURATION_MS;
+          setAuthState({ attempts: newAttempts, lockedUntil });
+          setIsLocked(true);
+          setTimeLeft(formatTimeLeft(LOCKOUT_DURATION_MS));
+          setAttemptsLeft(0);
+          setAuthError("");
+        } else {
+          setAuthState({ attempts: newAttempts, lockedUntil: null });
+          setAttemptsLeft(MAX_ATTEMPTS - newAttempts);
+          setAuthError(`Invalid secret key. ${MAX_ATTEMPTS - newAttempts} attempt${MAX_ATTEMPTS - newAttempts === 1 ? "" : "s"} remaining.`);
+        }
       }
     } catch {
       setAuthError("Connection error");
     }
+
     setAuthLoading(false);
   }
 
@@ -84,7 +170,7 @@ export default function AdminPage() {
       .order("prediction_points", { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-    if (search.length > 3) {
+    if (search.length > 2) {
       query = query.ilike("wallet", `%${search}%`);
     }
 
@@ -151,24 +237,43 @@ export default function AdminPage() {
       <main className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
         <div className="border border-[#f5a623]/20 p-8 w-full max-w-sm" style={{ fontFamily: "'IBM Plex Mono','Courier New',monospace" }}>
           <p className="text-[#f5a623] text-[10px] font-black tracking-widest mb-6">// ADMIN ACCESS</p>
-          <input
-            type="password"
-            placeholder="Enter secret key..."
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && login()}
-            className="w-full bg-[#111] border border-[#f5a623]/20 px-4 py-3 font-mono text-sm mb-3 text-[#e8d5a3] placeholder:text-[#e8d5a3]/20 focus:outline-none focus:border-[#f5a623]/50"
-          />
-          {authError && (
-            <p className="text-[#f44336] text-[11px] font-mono mb-3">{authError}</p>
+
+          {isLocked ? (
+            <div className="space-y-4">
+              <div className="border border-[#f44336]/30 bg-[#f44336]/5 p-4">
+                <p className="text-[#f44336] text-[11px] font-black tracking-widest mb-1">// ACCESS LOCKED</p>
+                <p className="text-[#e8d5a3]/40 text-[10px]">Too many failed attempts.</p>
+                <p className="text-[#e8d5a3]/40 text-[10px] mt-1">Try again in:</p>
+                <p className="text-[#f44336] text-lg font-black mt-2">{timeLeft}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <input
+                type="password"
+                placeholder="Enter secret key..."
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && login()}
+                className="w-full bg-[#111] border border-[#f5a623]/20 px-4 py-3 font-mono text-sm mb-3 text-[#e8d5a3] placeholder:text-[#e8d5a3]/20 focus:outline-none focus:border-[#f5a623]/50"
+              />
+              {authError && (
+                <p className="text-[#f44336] text-[11px] font-mono mb-3">{authError}</p>
+              )}
+              {attemptsLeft < MAX_ATTEMPTS && attemptsLeft > 0 && !authError && (
+                <p className="text-[#f5a623]/50 text-[10px] font-mono mb-3">
+                  {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} remaining
+                </p>
+              )}
+              <button
+                onClick={login}
+                disabled={authLoading || !secret}
+                className="w-full py-3 bg-[#f5a623] text-[#0a0a0a] font-black text-sm disabled:opacity-30"
+              >
+                {authLoading ? "VERIFYING..." : "ENTER"}
+              </button>
+            </>
           )}
-          <button
-            onClick={login}
-            disabled={authLoading || !secret}
-            className="w-full py-3 bg-[#f5a623] text-[#0a0a0a] font-black text-sm disabled:opacity-30"
-          >
-            {authLoading ? "VERIFYING..." : "ENTER"}
-          </button>
         </div>
       </main>
     );
@@ -180,69 +285,62 @@ export default function AdminPage() {
         <Link href="/" className="font-mono text-sm text-[#f5a623] tracking-widest">PREDICTBAG</Link>
         <div className="flex items-center gap-4">
           <span className="font-mono text-xs text-[#e8d5a3]/30">ADMIN PANEL</span>
-          <button onClick={logout} className="text-xs font-mono text-[#e8d5a3]/30 hover:text-[#f44336] transition-colors">
+          <button
+            onClick={logout}
+            className="font-mono text-xs text-[#f44336]/60 hover:text-[#f44336] transition-colors"
+          >
             LOGOUT
           </button>
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex gap-2 mb-8 border-b border-[#f5a623]/15 pb-4">
+      <div className="px-6 py-6">
+        <div className="flex gap-4 mb-6 border-b border-[#f5a623]/15 pb-4">
           {(["payouts", "pools", "agents"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-5 py-2 text-xs font-mono transition-colors ${
-                tab === t
-                  ? "text-[#f5a623] border border-[#f5a623]"
-                  : "text-[#e8d5a3]/30 border border-transparent hover:text-[#e8d5a3]"
+              className={`font-mono text-xs tracking-widest transition-colors ${
+                tab === t ? "text-[#f5a623]" : "text-[#e8d5a3]/30 hover:text-[#e8d5a3]/60"
               }`}
             >
               {t.toUpperCase()}
-              {t === "payouts" && payouts.filter((p) => p.status === "pending").length > 0 && (
-                <span className="ml-1.5 bg-[#f5a623] text-[#0a0a0a] px-1.5 py-0.5 text-[10px] font-black rounded-sm">
-                  {payouts.filter((p) => p.status === "pending").length}
-                </span>
-              )}
             </button>
           ))}
           <button
             onClick={loadData}
-            className="ml-auto px-4 py-2 text-xs font-mono text-[#e8d5a3]/30 border border-[#f5a623]/15 hover:border-[#f5a623] hover:text-[#f5a623] transition-colors"
+            disabled={loading}
+            className="ml-auto font-mono text-xs text-[#e8d5a3]/30 hover:text-[#f5a623] transition-colors disabled:opacity-30"
           >
-            {loading ? "..." : "↻ REFRESH"}
+            {loading ? "LOADING..." : "↻ REFRESH"}
           </button>
         </div>
 
         {tab === "payouts" && (
-          <div>
-            <h2 className="font-bold mb-4 text-[#e8d5a3] font-mono text-sm">
-              PAYOUT REQUESTS
-              <span className="ml-2 text-xs font-mono text-[#e8d5a3]/30">
-                ({payouts.filter((p) => p.status === "pending").length} pending · {payouts.length} total)
-              </span>
+          <div className="space-y-3">
+            <h2 className="font-bold text-[#e8d5a3] font-mono text-sm mb-4">
+              PAYOUT REQUESTS <span className="text-xs font-mono text-[#e8d5a3]/30">({payouts.length} total)</span>
             </h2>
-            <div className="space-y-3">
-              {payouts.length === 0 && (
-                <div className="border border-[#f5a623]/10 p-8 text-center text-[#e8d5a3]/30 font-mono text-sm">
-                  NO PAYOUT REQUESTS
-                </div>
-              )}
-              {payouts.map((payout) => (
+            {payouts.length === 0 ? (
+              <p className="text-[#e8d5a3]/30 font-mono text-xs py-8 text-center">NO PAYOUT REQUESTS</p>
+            ) : (
+              payouts.map((payout) => (
                 <PayoutRow
                   key={payout.id as string}
                   payout={payout}
                   onSent={markPayoutSent}
                   onRejected={markPayoutRejected}
                 />
-              ))}
-            </div>
+              ))
+            )}
           </div>
         )}
 
         {tab === "pools" && (
           <div>
-            <h2 className="font-bold mb-4 text-[#e8d5a3] font-mono text-sm">POOLS <span className="text-xs font-mono text-[#e8d5a3]/30">({pools.length} shown)</span></h2>
+            <h2 className="font-bold text-[#e8d5a3] font-mono text-sm mb-4">
+              POOLS <span className="text-xs font-mono text-[#e8d5a3]/30">({pools.length} shown)</span>
+            </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-xs font-mono">
                 <thead>
