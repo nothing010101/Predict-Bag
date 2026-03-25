@@ -3,6 +3,29 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getWalletInfo } from "@/lib/basescan";
 import { calculatePayout } from "@/lib/mining";
 
+// GET — dipanggil saat CHECK button diklik di payout page
+export async function GET(req: NextRequest) {
+  const wallet = req.nextUrl.searchParams.get("wallet");
+  if (!wallet) {
+    return NextResponse.json({ error: "wallet required" }, { status: 400 });
+  }
+
+  const { data: agent } = await supabaseAdmin
+    .from("agents")
+    .select("prediction_points")
+    .eq("wallet", wallet)
+    .single();
+
+  const walletInfo = await getWalletInfo(wallet);
+
+  return NextResponse.json({
+    prediction_points: agent?.prediction_points ?? 0,
+    wallet_age_days: walletInfo.ageInDays,
+    wallet_tx_count: walletInfo.txCount,
+  });
+}
+
+// POST — request payout
 export async function POST(req: NextRequest) {
   const { wallet } = await req.json();
 
