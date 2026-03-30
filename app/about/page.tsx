@@ -1,7 +1,7 @@
 import Link from "next/link";
 import BloombergLayout from "@/components/BloombergLayout";
 
-const CA = "soon on flaunch.gg";
+const CA = "0x163E72799DeAA78649e17f1dBE1649098a7d08bE";
 
 export default function AboutPage() {
   return (
