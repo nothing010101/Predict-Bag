@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import BloombergLayout from "@/components/BloombergLayout";
 
-const CA = "0x0000000000000000000000";
+const CA = "0x163E72799DeAA78649e17f1dBE1649098a7d08bE";
 const DEXSCREENER_URL = `https://dexscreener.com/base/${CA}`;
 
 export default function Home() {
