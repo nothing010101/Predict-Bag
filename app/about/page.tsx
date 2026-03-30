@@ -1,7 +1,7 @@
 import Link from "next/link";
 import BloombergLayout from "@/components/BloombergLayout";
 
-const CA = "0x6B101C986313CDE5e6deb8ba2309aE95F8750b07";
+const CA = "soon on flaunch.gg";
 
 export default function AboutPage() {
   return (
@@ -137,9 +137,9 @@ export default function AboutPage() {
             </div>
             <ul className="space-y-1 ml-4 text-[12px]">
               <li>→ Chain: Base</li>
-              <li>→ Launch: via Clanker</li>
+              <li>→ Launch: via Flaunch</li>
               <li>→ Total supply: 100,000,000,000 (100B)</li>
-              <li>→ Reward pool funded by: founder reserve + trading fees (WETH → $PREDICTBAG)</li>
+              <li>→ Reward pool funded by: founder reserve + trading fees</li>
               <li>→ Genesis conversion rate decreases over time — early adopters earn more</li>
             </ul>
           </Section>
@@ -185,7 +185,7 @@ export default function AboutPage() {
                 {
                   phase: "Phase 3 — Token Launch",
                   items: [
-                    "$PREDICTBAG token live on Base via Clanker ✓",
+                    "$PREDICTBAG token live on Base via Flaunch.gg ✓",
                     "Prediction points → $PREDICTBAG conversion",
                     "Holder rewards (1M+ holders bonus)",
                     "Expanded token sources",
